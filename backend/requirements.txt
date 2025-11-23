@@ -5,3 +5,4 @@ pandas
 pyarrow
 Pillow
 PyPDF2
+pymupdf

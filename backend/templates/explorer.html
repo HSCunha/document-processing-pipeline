@@ -276,8 +276,15 @@
                         </nav>
                     </div>
                     <div id="preview-content-pdf" class="d-none">
-                        <h6>Text extracted from PDF (first 5 pages)</h6>
-                        <div class="preview-container"></div>
+                        <div class="mb-3">
+                            <label for="pdfParserSelect" class="form-label">Select PDF Parser:</label>
+                            <select class="form-select" id="pdfParserSelect">
+                                <option value="pypdf2" selected>PyPDF2</option>
+                                <option value="pymupdf">PyMuPDF</option>
+                            </select>
+                        </div>
+                        <h6>Text extracted from PDF (Markdown, first 5 pages)</h6>
+                        <div class="preview-container markdown-body"></div>
                         <div class="metadata mt-2 small text-muted"></div>
                     </div>
                 </div>
@@ -290,6 +297,8 @@
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+    <!-- Marked.js for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const previewModal = document.getElementById('previewModal');
@@ -326,9 +335,67 @@
                 previewContentTable.querySelector('thead').innerHTML = '';
                 previewContentTable.querySelector('tbody').innerHTML = '';
                 previewContentTable.querySelector('.metadata').textContent = '';
-                previewContentPdf.querySelector('.preview-container').textContent = '';
+                previewContentPdf.querySelector('.preview-container').innerHTML = ''; // Changed to innerHTML for markdown
                 previewContentPdf.querySelector('.metadata').textContent = '';
+                
+                let selectedPdfParser = 'pypdf2'; // Default parser
+                if (fileType === 'pdf') {
+                    // Show PDF parser options
+                    previewContentPdf.classList.remove('d-none');
+                    const pdfParserSelect = document.getElementById('pdfParserSelect');
 
+                    // Reset to default
+                    pdfParserSelect.value = 'pypdf2';
+
+                    // Function to fetch PDF preview
+                    const fetchPdfPreview = (parser) => {
+                        selectedPdfParser = parser;
+                        previewContentPdf.querySelector('.preview-container').innerHTML = ''; // Clear previous content
+                        previewContentPdf.querySelector('.metadata').textContent = '';
+                        previewLoading.classList.remove('d-none');
+
+                        fetch(`/preview_data?path=${encodeURIComponent(filePath)}&type=${encodeURIComponent(fileType)}&pdf_parser=${encodeURIComponent(selectedPdfParser)}`)
+                            .then(response => {
+                                if (!response.ok) {
+                                    return response.json().then(err => { throw new Error(err.error || 'Unknown error'); });
+                                }
+                                return response.json();
+                            })
+                            .then(data => {
+                                previewLoading.classList.add('d-none');
+                                const metadata = data.metadata || {};
+
+                                if (metadata.type === 'pdf_markdown') {
+                                    previewContentPdf.classList.remove('d-none');
+                                    // Render Markdown content
+                                    previewContentPdf.querySelector('.preview-container').innerHTML = marked.parse(data.data);
+                                    let metaText = `Size: ${metadata.size} | Total Pages: ${metadata.total_pages}`;
+                                    if (metadata.truncated) metaText += ' (showing first 5 pages)';
+                                    previewContentPdf.querySelector('.metadata').textContent = metaText;
+                                } else {
+                                    // Fallback for other PDF types or errors
+                                    previewError.classList.remove('d-none');
+                                    previewError.textContent = `Unsupported preview type for PDF: ${metadata.type || fileType}`;
+                                }
+                            })
+                            .catch(error => {
+                                previewLoading.classList.add('d-none');
+                                previewError.classList.remove('d-none');
+                                previewError.textContent = `Error loading PDF preview: ${error.message}`;
+                                console.error('PDF Preview error:', error);
+                            });
+                    };
+
+                    // Initial fetch with default parser
+                    fetchPdfPreview(selectedPdfParser);
+
+                    // Attach change listener to dropdown
+                    pdfParserSelect.onchange = (e) => fetchPdfPreview(e.target.value);
+
+                    return; // Exit here if PDF to prevent generic fetch
+                }
+
+                // Generic fetch for non-PDF files
                 fetch(`/preview_data?path=${encodeURIComponent(filePath)}&type=${encodeURIComponent(fileType)}`)
                     .then(response => {
                         if (!response.ok) {
@@ -416,13 +483,14 @@
                                 nextPage.classList.add('d-none');
                             }
 
-                        } else if (metadata.type === 'pdf_text') {
+                        } else if (metadata.type === 'pdf_markdown') { // Changed from pdf_text to pdf_markdown
                             previewContentPdf.classList.remove('d-none');
-                            previewContentPdf.querySelector('.preview-container').innerHTML = data.data.map(pageText => `<p>${pageText.replace(/\n/g, '<br>')}</p><hr>`).join('');
+                            previewContentPdf.querySelector('.preview-container').innerHTML = marked.parse(data.data);
                             let metaText = `Size: ${metadata.size} | Total Pages: ${metadata.total_pages}`;
                             if (metadata.truncated) metaText += ' (showing first 5 pages)';
                             previewContentPdf.querySelector('.metadata').textContent = metaText;
-                        } else {
+                        }
+                         else {
                             previewError.classList.remove('d-none');
                             previewError.textContent = `Unsupported preview type: ${metadata.type || fileType}`;
                         }

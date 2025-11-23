@@ -453,6 +453,7 @@ def preview_route():
     file_type = request.args.get('type', '').lower()
     page = int(request.args.get('page', 1))
     rows_per_page = int(request.args.get('rows', 500))
+    pdf_parser = request.args.get('pdf_parser', 'pypdf2').lower() # New: Get PDF parser type
     
     if path.startswith('/'):
         path = path[1:]
@@ -473,7 +474,10 @@ def preview_route():
             if not temp_file or not os.path.exists(temp_file):
                 return jsonify({'error': 'Failed to download file for preview.'}), 500
             
-            return preview_data_file(temp_file, file_type, page, rows_per_page)
+            if file_type == 'pdf':
+                return preview_data_file(temp_file, file_type, page, rows_per_page, pdf_parser=pdf_parser)
+            else:
+                return preview_data_file(temp_file, file_type, page, rows_per_page)
         finally: # Cleanup temp_file after inner try/except/return
             if temp_file and os.path.exists(temp_file):
                 try:

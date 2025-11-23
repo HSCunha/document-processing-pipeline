@@ -4,6 +4,10 @@ import logging
 import base64
 from flask import jsonify
 
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 try:
     from PIL import Image, ExifTags
 except ImportError:
@@ -17,8 +21,11 @@ except ImportError:
     PyPDF2 = None
     logger.warning("PyPDF2 not installed. PDF preview features will be limited. Install with: pip install PyPDF2")
 
-# Configure logging
-logger = logging.getLogger(__name__)
+try:
+    import fitz # PyMuPDF
+except ImportError:
+    fitz = None
+    logger.warning("PyMuPDF (fitz) not installed. PyMuPDF PDF parser will not be available. Install with: pip install pymupdf")
 
 # File type mapping
 FILE_TYPE_ICONS = {
@@ -136,7 +143,7 @@ def process_file_metadata(blob):
     _, ext = os.path.splitext(display_name.lower())
     blob['file_type'] = ext[1:] if ext else ''
 
-def preview_data_file(file_path, file_type, page=1, rows_per_page=100):
+def preview_data_file(file_path, file_type, page=1, rows_per_page=100, pdf_parser='pypdf2'):
     """Preview data files (JSON, CSV, Parquet) and other previewable types"""
     file_size = os.path.getsize(file_path)
     formatted_size = format_size(file_size)
@@ -153,7 +160,7 @@ def preview_data_file(file_path, file_type, page=1, rows_per_page=100):
         elif file_type in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff']:
             return preview_image(file_path, formatted_size)
         elif file_type == 'pdf':
-            return preview_pdf_text(file_path, formatted_size)
+            return preview_pdf_text(file_path, formatted_size, pdf_parser)
         else:
             return jsonify({'error': f'Unsupported file type: {file_type}'}), 400
     except Exception as e:
@@ -380,33 +387,52 @@ def preview_image(file_path, formatted_size):
         logger.error(f"Error previewing image file: {str(e)}", exc_info=True)
         return jsonify({'error': f'Error processing image file: {str(e)}'}), 400
 
-def preview_pdf_text(file_path, formatted_size):
-    """Extract text from PDF file"""
-    if not PyPDF2:
-        return jsonify({'error': 'PyPDF2 library not installed for PDF preview.'}), 500
+def preview_pdf_text(file_path, formatted_size, pdf_parser='pypdf2'):
+    """Extract text from PDF file using the specified parser and format as Markdown."""
+    
+    pdf_content_markdown = []
+    total_pages = 0
+    truncated = False
 
-    try:
-        pdf_text = []
-        with open(file_path, 'rb') as f:
-            reader = PyPDF2.PdfReader(f)
-            num_pages = len(reader.pages)
-            
-            # Extract text from first few pages, or all if small
-            for i in range(min(num_pages, 5)): # Preview first 5 pages or fewer
-                page = reader.pages[i]
-                pdf_text.append(page.extract_text())
-            
-        truncated = num_pages > 5
-        
-        return jsonify({
-            'data': pdf_text,
-            'metadata': {
-                'size': formatted_size,
-                'total_pages': num_pages,
-                'truncated': truncated,
-                'type': 'pdf_text'
-            }
-        })
-    except Exception as e:
-        logger.error(f"Error previewing PDF file: {str(e)}", exc_info=True)
-        return jsonify({'error': f'Error processing PDF file: {str(e)}'}), 400
+    if pdf_parser == 'pymupdf':
+        if not fitz:
+            return jsonify({'error': 'PyMuPDF (fitz) library not installed for PDF preview.'}), 500
+        try:
+            doc = fitz.open(file_path)
+            total_pages = doc.page_count
+            for i in range(min(total_pages, 5)): # Preview first 5 pages or fewer
+                page = doc.load_page(i)
+                text = page.get_text("text")
+                pdf_content_markdown.append(f"## Page {i + 1}\n\n```text\n{text.strip()}\n```")
+            doc.close()
+            truncated = total_pages > 5
+        except Exception as e:
+            logger.error(f"Error processing PDF with PyMuPDF: {str(e)}", exc_info=True)
+            return jsonify({'error': f'Error processing PDF with PyMuPDF: {str(e)}'}), 400
+    elif pdf_parser == 'pypdf2':
+        if not PyPDF2:
+            return jsonify({'error': 'PyPDF2 library not installed for PDF preview.'}), 500
+        try:
+            with open(file_path, 'rb') as f:
+                reader = PyPDF2.PdfReader(f)
+                total_pages = len(reader.pages)
+                for i in range(min(total_pages, 5)): # Preview first 5 pages or fewer
+                    page = reader.pages[i]
+                    text = page.extract_text()
+                    pdf_content_markdown.append(f"## Page {i + 1}\n\n```text\n{text.strip()}\n```")
+            truncated = total_pages > 5
+        except Exception as e:
+            logger.error(f"Error processing PDF with PyPDF2: {str(e)}", exc_info=True)
+            return jsonify({'error': f'Error processing PDF with PyPDF2: {str(e)}'}), 400
+    else:
+        return jsonify({'error': f'Invalid PDF parser specified: {pdf_parser}'}), 400
+
+    return jsonify({
+        'data': "\n\n---\n\n".join(pdf_content_markdown), # Join pages with a Markdown separator
+        'metadata': {
+            'size': formatted_size,
+            'total_pages': total_pages,
+            'truncated': truncated,
+            'type': 'pdf_markdown' # Indicate that the content is Markdown
+        }
+    })
