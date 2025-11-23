@@ -225,6 +225,10 @@ def preview_csv(file_path, formatted_size, page=1, rows_per_page=100):
             
             # Read the page data
             df = pd.read_csv(file_path, skiprows=skip_rows, nrows=rows_per_page, encoding='utf-8')
+            
+            # Replace NaN with None for valid JSON conversion
+            df = df.where(pd.notna(df), None)
+            
             records = df.to_dict('records')
             columns = df.columns.tolist()
             
@@ -303,6 +307,9 @@ def preview_parquet(file_path, formatted_size, page=1, rows_per_page=100):
             # Read the requested page of data
             # Optimized to read only relevant row groups if possible, but pandas.read_parquet handles it
             df = pd.read_parquet(file_path, engine='pyarrow')
+            
+            # Replace NaN with None for valid JSON conversion
+            df = df.where(pd.notna(df), None)
             
             # Get page slice
             page_df = df.iloc[start_row:start_row+rows_per_page]
