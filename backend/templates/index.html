@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Azure Storage Explorer - Connect</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="bi bi-microsoft me-2"></i>Azure Storage Explorer
+            </a>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row justify-content-center">
+            <div class="col-md-8 col-lg-6">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                                {{ message|safe }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <div class="card shadow-sm">
+                    <div class="card-header bg-white">
+                        <h4 class="mb-0">Connect to Azure Blob Storage</h4>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ url_for('connect') }}" method="post">
+                            <div class="mb-3">
+                                <label for="connection_string" class="form-label">Connection String</label>
+                                <input type="text" class="form-control" id="connection_string" name="connection_string" placeholder="DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...">
+                                <div class="form-text">Provide the full connection string for your storage account.</div>
+                            </div>
+                            <div class="text-center my-3">
+                                <span class="text-muted">OR</span>
+                            </div>
+                            <div class="mb-3">
+                                <label for="account_url" class="form-label">Account URL</label>
+                                <input type="text" class="form-control" id="account_url" name="account_url" placeholder="https://youraccount.blob.core.windows.net/">
+                                <div class="form-text">E.g., `https://youraccount.blob.core.windows.net/`</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="credential" class="form-label">Credential (SAS Token)</label>
+                                <input type="text" class="form-control" id="credential" name="credential" placeholder="?sv=2022-11-02&ss=bfqt&srt=sco&sp=...">
+                                <div class="form-text">Provide a Shared Access Signature (SAS) token for authentication.</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="container_name" class="form-label">Container Name (Optional)</label>
+                                <input type="text" class="form-control" id="container_name" name="container_name" placeholder="Leave blank to list all containers">
+                                <div class="form-text">Specify a container name if your SAS token is container-specific, or to directly access a container.</div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="bi bi-link-45deg me-2"></i>Connect
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+</body>
+</html>

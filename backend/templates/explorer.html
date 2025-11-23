@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Azure Storage Explorer - Explorer</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        .item-row:hover {
+            background-color: #e8f0f8; /* Light blue on hover */
+            cursor: pointer;
+        }
+        .preview-container {
+            max-height: 70vh;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+            padding: 10px;
+            background-color: #f8f8f8;
+            font-size: 0.9em;
+            font-family: monospace;
+            white-space: pre-wrap; /* For text previews */
+            word-break: break-all;
+        }
+        .preview-image-container {
+            text-align: center;
+        }
+        .preview-image-container img {
+            max-width: 100%;
+            height: auto;
+            max-height: 60vh;
+            object-fit: contain;
+        }
+        .exif-table th {
+            width: 30%;
+        }
+        .exif-table td {
+            word-break: break-all;
+        }
+        .json-preview, .xml-preview {
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="bi bi-microsoft me-2"></i>Azure Storage Explorer
+            </a>
+            <div class="d-flex">
+                <a href="{{ url_for('disconnect') }}" class="btn btn-outline-light">
+                    <i class="bi bi-box-arrow-right me-2"></i>Disconnect
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-3">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                        {{ message|safe }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                {% for crumb in breadcrumbs %}
+                    <li class="breadcrumb-item {% if loop.last %}active{% endif %}">
+                        {% if not loop.last %}
+                            <a href="{{ url_for('browse', path=crumb.path) }}">{{ crumb.name }}</a>
+                        {% else %}
+                            {{ crumb.name }}
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ol>
+        </nav>
+
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Contents of {{ breadcrumbs[-1].name }}</h5>
+                {% if not is_root %}
+                    <div class="d-flex">
+                        <!-- Upload Button -->
+                        <button type="button" class="btn btn-sm btn-primary me-2" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                            <i class="bi bi-upload me-1"></i>Upload
+                        </button>
+                        <!-- Create Folder Button -->
+                        <button type="button" class="btn btn-sm btn-secondary" data-bs-toggle="modal" data-bs-target="#createFolderModal">
+                            <i class="bi bi-folder-plus me-1"></i>Create Folder
+                        </button>
+                    </div>
+                {% endif %}
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-striped mb-0">
+                        <thead>
+                            <tr>
+                                <th scope="col" style="width: 30px;"></th>
+                                <th scope="col">Name</th>
+                                <th scope="col">Last Modified</th>
+                                <th scope="col">Size</th>
+                                <th scope="col" style="width: 150px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if current_path != "/" %}
+                                <tr class="item-row">
+                                    <td><i class="bi bi-arrow-return-left"></i></td>
+                                    <td><a href="{{ url_for('browse', path=('/' + '/'.join(breadcrumbs[-2].path.split('/')[1:])) if breadcrumbs|length > 1 else '/') }}">...</a></td>
+                                    <td></td>
+                                    <td></td>
+                                    <td></td>
+                                </tr>
+                            {% endif %}
+                            {% for item in items %}
+                                <tr class="item-row">
+                                    <td><i class="bi {{ item.icon_class }}"></i></td>
+                                    <td>
+                                        {% if item.type == 'folder' or item.type == 'container' %}
+                                            <a href="{{ url_for('browse', path=item.name) if is_root else url_for('browse', path=current_path.strip('/') + '/' + item.name) }}">
+                                                {{ item.name }}
+                                            </a>
+                                        {% else %}
+                                            {{ item.display_name }}
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ item.last_modified }}</td>
+                                    <td>{{ item.size if item.size else '-' }}</td>
+                                    <td>
+                                        {% if item.type == 'blob' %}
+                                            <a href="{{ url_for('download', path=item.name) }}" class="btn btn-sm btn-info me-1" title="Download">
+                                                <i class="bi bi-download"></i>
+                                            </a>
+                                            <form action="{{ url_for('delete') }}" method="post" class="d-inline delete-form">
+                                                <input type="hidden" name="path" value="{{ item.name }}">
+                                                <button type="submit" class="btn btn-sm btn-danger me-1" title="Delete" onclick="return confirm('Are you sure you want to delete {{ item.display_name }}?');">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </form>
+                                            {% if item.is_previewable %}
+                                                <button type="button" class="btn btn-sm btn-secondary preview-button" title="Preview"
+                                                        data-bs-toggle="modal" data-bs-target="#previewModal"
+                                                        data-file-path="{{ current_container }}/{{ item.name }}"
+                                                        data-file-type="{{ item.file_type }}"
+                                                        data-file-name="{{ item.display_name }}">
+                                                    <i class="bi bi-eye"></i>
+                                                </button>
+                                            {% endif %}
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                            {% if not items and current_path == "/" %}
+                                <tr><td colspan="5" class="text-center py-4">No containers found. Please connect to a storage account with containers or specify a container name.</td></tr>
+                            {% elif not items %}
+                                <tr><td colspan="5" class="text-center py-4">This folder is empty.</td></tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div class="modal fade" id="uploadModal" tabindex="-1" aria-labelledby="uploadModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="uploadModalLabel">Upload File</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+                    <div class="modal-body">
+                        <input type="hidden" name="container" value="{{ current_container }}">
+                        <input type="hidden" name="prefix" value="{{ current_prefix }}">
+                        <div class="mb-3">
+                            <label for="formFile" class="form-label">Select file to upload</label>
+                            <input class="form-control" type="file" id="formFile" name="file" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-primary">Upload</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Folder Modal -->
+    <div class="modal fade" id="createFolderModal" tabindex="-1" aria-labelledby="createFolderModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="createFolderModalLabel">Create New Folder</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form action="{{ url_for('create_folder') }}" method="post">
+                    <div class="modal-body">
+                        <input type="hidden" name="container" value="{{ current_container }}">
+                        <input type="hidden" name="prefix" value="{{ current_prefix }}">
+                        <div class="mb-3">
+                            <label for="folderName" class="form-label">Folder Name</label>
+                            <input type="text" class="form-control" id="folderName" name="folder_name" placeholder="New Folder Name" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-primary">Create</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="previewModalLabel">Preview File</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="preview-loading" class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Loading preview...</p>
+                    </div>
+                    <div id="preview-error" class="alert alert-danger d-none"></div>
+                    
+                    <div id="preview-content-text" class="preview-container d-none">
+                        <pre></pre>
+                        <div class="metadata mt-2 small text-muted"></div>
+                    </div>
+                    <div id="preview-content-image" class="d-none">
+                        <div class="preview-image-container">
+                            <img src="" class="img-fluid" alt="Preview Image">
+                        </div>
+                        <div class="metadata mt-2 small text-muted"></div>
+                        <h6 class="mt-3">EXIF Metadata</h6>
+                        <div class="exif-data">
+                            <table class="table table-sm table-bordered exif-table">
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div id="preview-content-table" class="d-none">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered table-striped">
+                                <thead></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div class="metadata mt-2 small text-muted"></div>
+                        <nav aria-label="Table Pagination" class="mt-2">
+                            <ul class="pagination pagination-sm justify-content-center">
+                                <li class="page-item disabled" id="prev-page"><a class="page-link" href="#">Previous</a></li>
+                                <li class="page-item disabled" id="next-page"><a class="page-link" href="#">Next</a></li>
+                            </ul>
+                        </nav>
+                    </div>
+                    <div id="preview-content-pdf" class="d-none">
+                        <h6>Text extracted from PDF (first 5 pages)</h6>
+                        <div class="preview-container"></div>
+                        <div class="metadata mt-2 small text-muted"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const previewModal = document.getElementById('previewModal');
+            const previewModalLabel = document.getElementById('previewModalLabel');
+            const previewLoading = document.getElementById('preview-loading');
+            const previewError = document.getElementById('preview-error');
+            const previewContentText = document.getElementById('preview-content-text');
+            const previewContentImage = document.getElementById('preview-content-image');
+            const previewContentTable = document.getElementById('preview-content-table');
+            const previewContentPdf = document.getElementById('preview-content-pdf');
+
+            previewModal.addEventListener('show.bs.modal', function (event) {
+                const button = event.relatedTarget;
+                const filePath = button.getAttribute('data-file-path');
+                const fileType = button.getAttribute('data-file-type');
+                const fileName = button.getAttribute('data-file-name');
+
+                previewModalLabel.textContent = `Preview: ${fileName}`;
+                
+                // Reset preview content and hide all
+                previewLoading.classList.remove('d-none');
+                previewError.classList.add('d-none');
+                previewContentText.classList.add('d-none');
+                previewContentImage.classList.add('d-none');
+                previewContentTable.classList.add('d-none');
+                previewContentPdf.classList.add('d-none');
+
+                // Clear previous content
+                previewContentText.querySelector('pre').textContent = '';
+                previewContentText.querySelector('.metadata').textContent = '';
+                previewContentImage.querySelector('img').src = '';
+                previewContentImage.querySelector('.metadata').textContent = '';
+                previewContentImage.querySelector('.exif-table tbody').innerHTML = '';
+                previewContentTable.querySelector('thead').innerHTML = '';
+                previewContentTable.querySelector('tbody').innerHTML = '';
+                previewContentTable.querySelector('.metadata').textContent = '';
+                previewContentPdf.querySelector('.preview-container').textContent = '';
+                previewContentPdf.querySelector('.metadata').textContent = '';
+
+                fetch(`/preview_data?path=${encodeURIComponent(filePath)}&type=${encodeURIComponent(fileType)}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { throw new Error(err.error || 'Unknown error'); });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        previewLoading.classList.add('d-none');
+                        const metadata = data.metadata || {};
+
+                        if (metadata.type === 'text') {
+                            previewContentText.classList.remove('d-none');
+                            previewContentText.querySelector('pre').textContent = data.data;
+                            let metaText = `Size: ${metadata.size}`;
+                            if (metadata.truncated) metaText += ' (truncated)';
+                            previewContentText.querySelector('.metadata').textContent = metaText;
+                        } else if (metadata.type === 'image') {
+                            previewContentImage.classList.remove('d-none');
+                            previewContentImage.querySelector('img').src = data.data;
+                            let metaText = `Size: ${metadata.size}`;
+                            if (metadata.image_info) {
+                                const info = metadata.image_info;
+                                metaText += ` | Format: ${info.format} | Mode: ${info.mode} | Dimensions: ${info.size[0]}x${info.size[1]}`;
+                            }
+                            previewContentImage.querySelector('.metadata').textContent = metaText;
+
+                            if (metadata.image_info && metadata.image_info.exif) {
+                                const exifTableBody = previewContentImage.querySelector('.exif-table tbody');
+                                for (const key in metadata.image_info.exif) {
+                                    const row = exifTableBody.insertRow();
+                                    row.insertCell().textContent = key;
+                                    row.insertCell().textContent = metadata.image_info.exif[key];
+                                }
+                            }
+                        } else if (metadata.type === 'csv' || metadata.type === 'json' || metadata.type === 'parquet') {
+                            previewContentTable.classList.remove('d-none');
+                            const tableHead = previewContentTable.querySelector('thead');
+                            const tableBody = previewContentTable.querySelector('tbody');
+
+                            // Clear existing table content
+                            tableHead.innerHTML = '';
+                            tableBody.innerHTML = '';
+
+                            // Create header
+                            if (metadata.columns && metadata.columns.length > 0) {
+                                const headerRow = tableHead.insertRow();
+                                metadata.columns.forEach(col => {
+                                    const th = document.createElement('th');
+                                    th.scope = 'col';
+                                    th.textContent = col;
+                                    headerRow.appendChild(th);
+                                });
+                            }
+
+                            // Create body rows
+                            if (data.data && data.data.length > 0) {
+                                data.data.forEach(rowData => {
+                                    const row = tableBody.insertRow();
+                                    metadata.columns.forEach(col => {
+                                        const cell = row.insertCell();
+                                        cell.textContent = rowData[col];
+                                    });
+                                });
+                            } else {
+                                const row = tableBody.insertRow();
+                                const cell = row.insertCell();
+                                cell.colSpan = metadata.columns ? metadata.columns.length : 1;
+                                cell.textContent = 'No data to display.';
+                            }
+
+                            let metaText = `Size: ${metadata.size} | Rows: ${metadata.totalRows}`;
+                            if (metadata.truncated) metaText += ' (truncated)';
+                            previewContentTable.querySelector('.metadata').textContent = metaText;
+
+                            // Pagination for CSV/Parquet (JSON usually isn't paginated)
+                            const prevPage = document.getElementById('prev-page');
+                            const nextPage = document.getElementById('next-page');
+                            if (metadata.currentPage && metadata.totalPages) {
+                                prevPage.classList.toggle('disabled', metadata.currentPage <= 1);
+                                nextPage.classList.toggle('disabled', metadata.currentPage >= metadata.totalPages);
+                                // Add click handlers if needed for pagination
+                            } else {
+                                prevPage.classList.add('d-none');
+                                nextPage.classList.add('d-none');
+                            }
+
+                        } else if (metadata.type === 'pdf_text') {
+                            previewContentPdf.classList.remove('d-none');
+                            previewContentPdf.querySelector('.preview-container').innerHTML = data.data.map(pageText => `<p>${pageText.replace(/\n/g, '<br>')}</p><hr>`).join('');
+                            let metaText = `Size: ${metadata.size} | Total Pages: ${metadata.total_pages}`;
+                            if (metadata.truncated) metaText += ' (showing first 5 pages)';
+                            previewContentPdf.querySelector('.metadata').textContent = metaText;
+                        } else {
+                            previewError.classList.remove('d-none');
+                            previewError.textContent = `Unsupported preview type: ${metadata.type || fileType}`;
+                        }
+                    })
+                    .catch(error => {
+                        previewLoading.classList.add('d-none');
+                        previewError.classList.remove('d-none');
+                        previewError.textContent = `Error loading preview: ${error.message}`;
+                        console.error('Preview error:', error);
+                    });
+            });
+        });
+    </script>
+</body>
+</html>

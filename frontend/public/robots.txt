@@ -1,0 +1,7 @@
+# See https://www.robotstxt.org/robotstxt.html
+# for documentation on how to use the robots.txt file
+#
+# A robot should obey at least one of the following rules.
+
+User-agent: *
+Disallow: /

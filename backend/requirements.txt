@@ -1,0 +1,7 @@
+Flask
+Flask-Cors
+azure-storage-blob
+pandas
+pyarrow
+Pillow
+PyPDF2
