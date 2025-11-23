@@ -215,6 +215,8 @@ def browse():
         container_name = parts[0]
         prefix = '/'.join(parts[1:]) if len(parts) > 1 else ""
         
+        session['container_name'] = container_name # Store container_name in session
+        
         logger.info(f"Browsing container: {container_name}, prefix: '{prefix}'")
         
         folders, blobs = azure_explorer.list_blobs_and_folders(container_name, prefix)
@@ -273,13 +275,12 @@ def download():
         path = path[1:]
     
     try:
-        parts = path.split('/', 1)
-        if len(parts) < 2:
-            flash("Invalid path for download", 'warning')
+        container_name = session.get('container_name')
+        if not container_name:
+            flash("Container not specified in session for download.", 'warning')
             return redirect(url_for('explorer'))
             
-        container_name = parts[0]
-        blob_name = parts[1]
+        blob_name = path
         
         temp_file = azure_explorer.download_blob(container_name, blob_name)
         filename = os.path.basename(blob_name)
@@ -367,16 +368,18 @@ def delete():
         path = path[1:]
     
     try:
-        parts = path.split('/', 1)
-        if len(parts) < 2:
-            flash("Invalid path for deletion", 'warning')
+        container_name = session.get('container_name')
+        if not container_name:
+            flash("Container not specified in session for deletion.", 'warning')
             return redirect(url_for('explorer'))
             
-        container_name = parts[0]
-        blob_name = parts[1]
+        blob_name = path
         
-        parent_dir = os.path.dirname(path)
-        if not parent_dir:
+        # Determine parent directory for redirect after deletion
+        parent_dir_parts = blob_name.rsplit('/', 1)
+        if len(parent_dir_parts) > 1:
+            parent_dir = f"{container_name}/{parent_dir_parts[0]}"
+        else:
             parent_dir = container_name
         
         success = azure_explorer.delete_blob(container_name, blob_name)
