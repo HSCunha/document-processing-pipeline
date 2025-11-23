@@ -401,6 +401,13 @@ def delete():
         flash(f"Error deleting file: {str(e)}", 'danger')
         return redirect(url_for('explorer'))
 
+@app.route('/clear_container_and_explore')
+def clear_container_and_explore():
+    """Clears the container name from the session and redirects to the explorer view."""
+    session.pop('container_name', None)
+    flash("Navigating to all containers view.", 'info')
+    return redirect(url_for('explorer'))
+
 @app.route('/create_folder', methods=['POST'])
 def create_folder():
     """Create a new folder."""

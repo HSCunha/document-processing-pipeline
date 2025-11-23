@@ -78,7 +78,11 @@
                 {% for crumb in breadcrumbs %}
                     <li class="breadcrumb-item {% if loop.last %}active{% endif %}">
                         {% if not loop.last %}
-                            <a href="{{ url_for('browse', path=crumb.path) }}">{{ crumb.name }}</a>
+                            {% if crumb.name == 'Root' %}
+                                <a href="{{ url_for('clear_container_and_explore') }}">{{ crumb.name }}</a>
+                            {% else %}
+                                <a href="{{ url_for('browse', path=crumb.path) }}">{{ crumb.name }}</a>
+                            {% endif %}
                         {% else %}
                             {{ crumb.name }}
                         {% endif %}
@@ -119,7 +123,7 @@
                             {% if current_path != "/" %}
                                 <tr class="item-row">
                                     <td><i class="bi bi-arrow-return-left"></i></td>
-                                    <td><a href="{{ url_for('browse', path=('/' + '/'.join(breadcrumbs[-2].path.split('/')[1:])) if breadcrumbs|length > 1 else '/') }}">...</a></td>
+                                    <td><a href="{% if not current_prefix %}{{ url_for('clear_container_and_explore') }}{% else %}{{ url_for('browse', path=('/' + '/'.join(breadcrumbs[-2].path.split('/')[1:])) if breadcrumbs|length > 1 else '/') }}{% endif %}">...</a></td>
                                     <td></td>
                                     <td></td>
                                     <td></td>
