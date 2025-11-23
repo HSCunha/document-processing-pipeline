@@ -285,10 +285,15 @@
                             <select class="form-select" id="pdfParserSelect">
                                 <option value="pypdf2" selected>PyPDF2</option>
                                 <option value="pymupdf">PyMuPDF</option>
+                                <option value="pymupdf4llm">pymupdf4llm</option>
                             </select>
                         </div>
                         <h6>Text extracted from PDF (Markdown, first 5 pages)</h6>
                         <div class="preview-container markdown-body"></div>
+                        
+                        <h6 class="mt-3">PDF Metadata</h6>
+                        <div class="pdf-metadata small text-muted"></div>
+
                         <div class="metadata mt-2 small text-muted"></div>
                     </div>
                 </div>
@@ -305,6 +310,19 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            const pdfMetadataIcons = {
+                'creationdate': 'bi-calendar-plus',
+                'creator': 'bi-person-fill',
+                'format': 'bi-file-earmark-fill',
+                'moddate': 'bi-calendar-check',
+                'producer': 'bi-building',
+                'language': 'bi-translate',
+                'title': 'bi-card-heading',
+                'author': 'bi-person-circle',
+                'subject': 'bi-tag',
+                'keywords': 'bi-tags'
+            };
+
             const previewModal = document.getElementById('previewModal');
             const previewModalLabel = document.getElementById('previewModalLabel');
             const previewLoading = document.getElementById('preview-loading');
@@ -341,7 +359,8 @@
                 previewContentTable.querySelector('.metadata').textContent = '';
                 previewContentPdf.querySelector('.preview-container').innerHTML = ''; // Changed to innerHTML for markdown
                 previewContentPdf.querySelector('.metadata').textContent = '';
-                
+                previewContentPdf.querySelector('.pdf-metadata').innerHTML = ''; // Clear PDF metadata
+
                 let selectedPdfParser = 'pypdf2'; // Default parser
                 if (fileType === 'pdf') {
                     // Show PDF parser options
@@ -356,6 +375,7 @@
                         selectedPdfParser = parser;
                         previewContentPdf.querySelector('.preview-container').innerHTML = ''; // Clear previous content
                         previewContentPdf.querySelector('.metadata').textContent = '';
+                        previewContentPdf.querySelector('.pdf-metadata').innerHTML = ''; // Clear PDF metadata
                         previewLoading.classList.remove('d-none');
 
                         fetch(`/preview_data?path=${encodeURIComponent(filePath)}&type=${encodeURIComponent(fileType)}&pdf_parser=${encodeURIComponent(selectedPdfParser)}`)
@@ -376,6 +396,23 @@
                                     let metaText = `Size: ${metadata.size} | Total Pages: ${metadata.total_pages}`;
                                     if (metadata.truncated) metaText += ' (showing first 5 pages)';
                                     previewContentPdf.querySelector('.metadata').textContent = metaText;
+
+                                    // Display PDF metadata
+                                    const pdfMetadataDiv = previewContentPdf.querySelector('.pdf-metadata');
+                                    pdfMetadataDiv.innerHTML = ''; // Clear previous
+                                    if (metadata.pdf_metadata && Object.keys(metadata.pdf_metadata).length > 0) {
+                                        for (const key in metadata.pdf_metadata) {
+                                            if (metadata.pdf_metadata.hasOwnProperty(key) && metadata.pdf_metadata[key]) {
+                                                const iconClass = pdfMetadataIcons[key.toLowerCase()];
+                                                const p = document.createElement('p');
+                                                p.innerHTML = `${iconClass ? `<i class="bi ${iconClass} me-2"></i>` : ''}<strong>${key.charAt(0).toUpperCase() + key.slice(1)}:</strong> ${metadata.pdf_metadata[key]}`;
+                                                pdfMetadataDiv.appendChild(p);
+                                            }
+                                        }
+                                    } else {
+                                        pdfMetadataDiv.innerHTML = '<p>No detailed PDF metadata available.</p>';
+                                    }
+
                                 } else {
                                     // Fallback for other PDF types or errors
                                     previewError.classList.remove('d-none');

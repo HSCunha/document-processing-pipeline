@@ -27,6 +27,19 @@ except ImportError:
     fitz = None
     logger.warning("PyMuPDF (fitz) not installed. PyMuPDF PDF parser will not be available. Install with: pip install pymupdf")
 
+try:
+    from langdetect import detect, LangDetectException
+except ImportError:
+    detect = None
+    LangDetectException = None
+    logger.warning("langdetect not installed. Language detection for PDFs will not be available. Install with: pip install langdetect")
+
+try:
+    import pymupdf4llm
+except ImportError:
+    pymupdf4llm = None
+    logger.warning("pymupdf4llm not installed. pymupdf4llm PDF parser will not be available. Install with: pip install pymupdf4llm")
+
 # File type mapping
 FILE_TYPE_ICONS = {
     # Data files
@@ -388,11 +401,14 @@ def preview_image(file_path, formatted_size):
         return jsonify({'error': f'Error processing image file: {str(e)}'}), 400
 
 def preview_pdf_text(file_path, formatted_size, pdf_parser='pypdf2'):
-    """Extract text from PDF file using the specified parser and format as Markdown."""
+    """Extract text from PDF file using the specified parser and format as Markdown,
+    and include detailed PDF metadata.
+    """
     
     pdf_content_markdown = []
     total_pages = 0
     truncated = False
+    pdf_metadata = {}
 
     if pdf_parser == 'pymupdf':
         if not fitz:
@@ -400,6 +416,25 @@ def preview_pdf_text(file_path, formatted_size, pdf_parser='pypdf2'):
         try:
             doc = fitz.open(file_path)
             total_pages = doc.page_count
+            pdf_metadata = doc.metadata or {} # Get PDF metadata
+
+            # Extract text from the first few pages for language detection
+            sample_text = ""
+            for i in range(min(total_pages, 3)): # Use first 3 pages for language detection
+                page = doc.load_page(i)
+                sample_text += page.get_text("text") + " "
+            
+            if detect and sample_text.strip():
+                try:
+                    detected_language = detect(sample_text)
+                    pdf_metadata['language'] = detected_language
+                except LangDetectException:
+                    logger.warning(f"Could not detect language for PDF: {file_path}")
+                    pdf_metadata['language'] = 'unknown'
+                except Exception as e:
+                    logger.warning(f"An unexpected error occurred during language detection for PDF: {file_path} - {e}")
+                    pdf_metadata['language'] = 'error'
+
             for i in range(min(total_pages, 5)): # Preview first 5 pages or fewer
                 page = doc.load_page(i)
                 text = page.get_text("text")
@@ -416,6 +451,30 @@ def preview_pdf_text(file_path, formatted_size, pdf_parser='pypdf2'):
             with open(file_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
                 total_pages = len(reader.pages)
+                pdf_metadata = reader.metadata or {} # Get PDF metadata
+                # PyPDF2 metadata keys are different, convert to a more generic dict
+                # Example: {'/Author': '...', '/Title': '...'} -> {'author': '...', 'title': '...'}
+                pdf_metadata = {key.replace('/', '').lower(): value for key, value in pdf_metadata.items()}
+                
+                # Extract text from the first few pages for language detection
+                sample_text = ""
+                for i in range(min(total_pages, 3)): # Use first 3 pages for language detection
+                    page = reader.pages[i]
+                    text = page.extract_text()
+                    if text:
+                        sample_text += text + " "
+                
+                if detect and sample_text.strip():
+                    try:
+                        detected_language = detect(sample_text)
+                        pdf_metadata['language'] = detected_language
+                    except LangDetectException:
+                        logger.warning(f"Could not detect language for PDF: {file_path}")
+                        pdf_metadata['language'] = 'unknown'
+                    except Exception as e:
+                        logger.warning(f"An unexpected error occurred during language detection for PDF: {file_path} - {e}")
+                        pdf_metadata['language'] = 'error'
+
                 for i in range(min(total_pages, 5)): # Preview first 5 pages or fewer
                     page = reader.pages[i]
                     text = page.extract_text()
@@ -424,6 +483,30 @@ def preview_pdf_text(file_path, formatted_size, pdf_parser='pypdf2'):
         except Exception as e:
             logger.error(f"Error processing PDF with PyPDF2: {str(e)}", exc_info=True)
             return jsonify({'error': f'Error processing PDF with PyPDF2: {str(e)}'}), 400
+    elif pdf_parser == 'pymupdf4llm':
+        if not pymupdf4llm:
+            return jsonify({'error': 'pymupdf4llm library not installed for PDF preview.'}), 500
+        try:
+            doc = fitz.open(file_path)
+            total_pages = doc.page_count
+            pdf_metadata = doc.metadata or {}
+            doc.close()
+
+            md_text = pymupdf4llm.to_markdown(file_path)
+            
+            return jsonify({
+                'data': md_text,
+                'metadata': {
+                    'size': formatted_size,
+                    'total_pages': total_pages,
+                    'truncated': False,
+                    'type': 'pdf_markdown',
+                    'pdf_metadata': pdf_metadata
+                }
+            })
+        except Exception as e:
+            logger.error(f"Error processing PDF with pymupdf4llm: {str(e)}", exc_info=True)
+            return jsonify({'error': f'Error processing PDF with pymupdf4llm: {str(e)}'}), 400
     else:
         return jsonify({'error': f'Invalid PDF parser specified: {pdf_parser}'}), 400
 
@@ -433,6 +516,7 @@ def preview_pdf_text(file_path, formatted_size, pdf_parser='pypdf2'):
             'size': formatted_size,
             'total_pages': total_pages,
             'truncated': truncated,
-            'type': 'pdf_markdown' # Indicate that the content is Markdown
+            'type': 'pdf_markdown', # Indicate that the content is Markdown
+            'pdf_metadata': pdf_metadata # Include detailed PDF metadata
         }
     })

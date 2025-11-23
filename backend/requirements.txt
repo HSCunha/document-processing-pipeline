@@ -6,3 +6,5 @@ pyarrow
 Pillow
 PyPDF2
 pymupdf
+langdetect
+pymupdf4llm
