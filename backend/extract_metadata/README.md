@@ -77,20 +77,32 @@ ENABLE_LLM="False"
 
 ## Usage
 
-The primary entry point for running the metadata extraction application is `app/run.py`.
+The primary entry point for running the metadata extraction application is `app/run.py`. This script is designed to be run from the command line, accepting a file path and an optional pipeline type.
 
-To run the application:
+### Running the Extraction
 
-1.  Ensure you have followed the installation steps, activated your virtual environment, and **configured the necessary environment variables** as described in the "Configuration" section.
-2.  Navigate to the `extract_metadata` directory:
+1.  **Ensure you are in the correct directory.** All commands should be run from the `backend/extract_metadata` directory.
     ```bash
-    cd extract_metadata
+    cd path/to/your/project/backend/extract_metadata
     ```
-3.  Execute the `run.py` script:
-    ```bash
-    python -m app.run
-    ```
-    *(Note: Depending on how `run.py` is configured, it might start a local server or process files directly. Refer to `app/run.py` for specific command-line arguments or environment variables if any are needed.)*
+2.  **Make sure your virtual environment is activated** and you have configured the necessary environment variables as described in the "Configuration" section.
+3.  **Execute the `run.py` script** using `python -m app.run`, providing the path to the file you want to process.
+
+### Command-Line Arguments
+
+-   `--file`: (Required) The full or relative path to the document you want to process.
+-   `--pipeline`: (Optional) The type of pipeline to use. Can be `sop` or `generic`. Defaults to `sop`.
+
+### Example: Extracting Metadata from a PDF
+
+To extract metadata from a `filename.pdf` file located in `data/raw/` using the SOP pipeline, you would run the following command from within the `backend/extract_metadata` directory:
+
+```bash
+python -m app.run --file data/raw/filename.pdf --pipeline sop
+```
+
+The script will process the file and print the extracted metadata to the console in JSON format.
+
 
 ## Project Structure
 

@@ -1,10 +1,11 @@
 import os
 import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-
-import json # Import json for pretty printing in main
+import argparse
+import json
 from typing import Dict, Any, Type, Optional
+
+# Adjust path to import from the root of the 'backend' directory
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 # Core components
 from extract_metadata.core.config import MetadataExtractionConfig
@@ -18,15 +19,23 @@ from extract_metadata.core.llm_passes import LLMPassPipeline
 from extract_metadata.core.postproc import MetadataPostProcessor
 from extract_metadata.core.fallback import BaseFallbackMechanism
 
+# Import the new PdfLoader
+try:
+    from extract_metadata.core.pdf_loader import PdfLoader
+except ImportError:
+    PdfLoader = None
+    pass
+
+
 # SOP Plugin components
 from extract_metadata.plugins.sop.filename_parser import SOPFilenameParser
 from extract_metadata.plugins.sop.references import SOPReferenceExtractor
 from extract_metadata.plugins.sop.cleaning import SOPDocVersionRemover, SOPUncontrolledCopyRemover, SOPFrequentLineRemover
-from extract_metadata.plugins.sop.passes import get_sop_llm_pipeline # This factory includes SOP-specific JSONCleaner and schemas
+from extract_metadata.plugins.sop.passes import get_sop_llm_pipeline
 from extract_metadata.plugins.sop.schema_map import sop_schema_mapper
-from extract_metadata.plugins.sop.header_footer import SOPHeaderFooterExtractor # For SOP-specific post-processing
+from extract_metadata.plugins.sop.header_footer import SOPHeaderFooterExtractor
 from extract_metadata.plugins.sop.fallback_regex import SOPRegexFallbackExtractor
-from extract_metadata.plugins.sop.postproc import SOPPostProcessor # New import
+from extract_metadata.plugins.sop.postproc import SOPPostProcessor
 
 # Generic Plugin components
 from extract_metadata.plugins.generic.filename_parser import GenericFilenameParser
@@ -46,41 +55,26 @@ def setup_sop_pipeline(language: str = "en") -> MetadataPipeline:
     """
     logger.info(f"Setting up SOP metadata extraction pipeline for language: {language}")
 
-    # Load configuration
     config = MetadataExtractionConfig.load_config(language=language)
-
-    # Initialize core components
-    document_loader: Type[BaseDocumentLoader] = DictLoader # Use DictLoader for now, as original input was dict
+    document_loader: Type[BaseDocumentLoader] = DictLoader
     filename_parser = SOPFilenameParser()
-    model_client = AzureOpenAIClient(config.slm_openai_config) # Client is reusable, config just holds params
+    model_client = AzureOpenAIClient(config.slm_openai_config)
 
-    # --- Cleaning Pipeline ---
-    # Combine generic and SOP-specific cleaners
     sop_cleaning_pipeline = CleaningPipeline(cleaners=[
-        PatternRemover(), # Generic
-        SelectionTagReplacer(), # Generic
-        SOPDocVersionRemover(), # SOP specific
-        SOPUncontrolledCopyRemover(), # SOP specific
-        SOPFrequentLineRemover(), # SOP specific
-        ExcessBreakLineRemover(), # Generic
-        MarkdownConverter() # Generic
+        PatternRemover(),
+        SelectionTagReplacer(),
+        SOPDocVersionRemover(),
+        SOPUncontrolledCopyRemover(),
+        SOPFrequentLineRemover(),
+        ExcessBreakLineRemover(),
+        MarkdownConverter()
     ])
 
     chunker = HeadTailChunker() # Default chunker
-
-    # --- LLM Pass Pipeline ---
-    # The get_sop_llm_pipeline handles JSONCleaner internally with "sop_ids"
     llm_pass_pipeline = get_sop_llm_pipeline(reference_extractor_name="sop_ids")
-
-    # --- Post Processor ---
-    # Use SOP-specific post-processor
-    post_processor = SOPPostProcessor(reference_extractor_name="sop_ids") # Pass reference extractor name
-
-    # --- Fallback Mechanism ---
+    post_processor = SOPPostProcessor(reference_extractor_name="sop_ids")
     fallback_mechanism: Optional[BaseFallbackMechanism] = SOPRegexFallbackExtractor() # Instantiate the SOP-specific fallback
 
-    # External metadata placeholders (from original get_metadata signature)
-    # These would typically come from other parts of the system or configuration
     metadata_total = {"global_document_ind": "Yes"}
     f1_metadata = {
         "title": "SOP Document Title",
@@ -91,7 +85,6 @@ def setup_sop_pipeline(language: str = "en") -> MetadataPipeline:
         "owner_department": "QA"
     }
 
-    # Assemble the pipeline
     pipeline = MetadataPipeline(
         config=config,
         document_loader=document_loader,
@@ -115,30 +108,17 @@ def setup_generic_pipeline(language: str = "en") -> MetadataPipeline:
     """
     logger.info(f"Setting up Generic metadata extraction pipeline for language: {language}")
 
-    # Load configuration
     config = MetadataExtractionConfig.load_config(language=language)
-
-    # Initialize core components
     document_loader: Type[BaseDocumentLoader] = DictLoader
     filename_parser = GenericFilenameParser()
     model_client = AzureOpenAIClient(config.slm_openai_config)
 
-    # --- Cleaning Pipeline ---
     generic_cleaning_pipeline = get_generic_cleaning_pipeline() # Uses generic cleaning pipeline factory
-
     chunker = HeadTailChunker() # Default chunker
-
-    # --- LLM Pass Pipeline ---
     llm_pass_pipeline = get_generic_llm_pipeline(reference_extractor_name="generic_refs")
-
-    # --- Post Processor ---
     post_processor = MetadataPostProcessor(reference_extractor_name="generic_refs")
+    fallback_mechanism: Optional[BaseFallbackMechanism] = None # For a generic pipeline, we might not have a specific regex fallback
 
-    # --- Fallback Mechanism (Optional for generic) ---
-    # For a generic pipeline, we might not have a specific regex fallback, so it can be None
-    fallback_mechanism: Optional[BaseFallbackMechanism] = None 
-
-    # External metadata placeholders
     metadata_total = {"global_document_ind": "No"}
     f1_metadata = {
         "title": "Generic Document",
@@ -149,7 +129,6 @@ def setup_generic_pipeline(language: str = "en") -> MetadataPipeline:
         "owner_department": ""
     }
 
-    # Assemble the pipeline
     pipeline = MetadataPipeline(
         config=config,
         document_loader=document_loader,
@@ -169,61 +148,54 @@ def setup_generic_pipeline(language: str = "en") -> MetadataPipeline:
 
 
 def main():
-    # Example usage:
-    # Set environment variables for testing or use a .env file
-    # os.environ["AZURE_OPENAI_ENDPOINT"] = "YOUR_ENDPOINT"
-    # os.environ["AZURE_OPENAI_SLM"] = "gpt-4"
-    # os.environ["AZURE_OPENAI_SLM_API_VERSION"] = "2024-02-15-preview"
-    # os.environ["SLM_EXTRACTION_ATTEMPTS"] = "1"
-    # os.environ["ENABLE_LLM"] = "False"
+    """
+    Main function to run the metadata extraction pipeline from the command line.
+    """
+    parser = argparse.ArgumentParser(description="Run the metadata extraction pipeline on a document.")
+    parser.add_argument("--file", type=str, required=True, help="Path to the document file to process.")
+    parser.add_argument("--pipeline", type=str, default="sop", choices=["sop", "generic"], help="The pipeline to use ('sop' or 'generic').")
+    
+    args = parser.parse_args()
 
-    print("Make sure to configure the following environment variables:")
-    print("- AZURE_OPENAI_ENDPOINT: The endpoint for your Azure OpenAI service.")
-    print("- AZURE_OPENAI_SLM: The deployment name for your SLM model.")
-    print("- AZURE_OPENAI_SLM_API_VERSION: The API version for your SLM model.")
-    # --- SOP Pipeline Example ---
-    sop_pipeline = setup_sop_pipeline(language="en")
+    file_path = args.file
+    pipeline_type = args.pipeline
 
-    # Mock document input (similar to original 'document' parameter)
-    mock_sop_document_source = {
-        "md_di": "This is a sample SOP document. Doc No. : SOP-1234567 Version : 1.0. "
-                 "This document defines the process for QM-9876543. "
-                 "Uncontrolled Copy. Related to STD-1122334. <!-- PageFooter=\"Example\" -->",
-        "paragraphs": [
-            {"content": "Header text with another reference: ATT-0000001", "boundingRegions": [{"pageNumber": 2, "polygon": [0,0,1,1,1,1.5,0,1.5]}]}
-        ]
-    }
-    sop_filename = "SOP-1234567_1.0_Draft_No_SOP_en.pdf"
+    if not os.path.exists(file_path):
+        logger.error(f"File not found: {file_path}")
+        sys.exit(1)
 
-    logger.info("\n--- Running SOP Pipeline ---")
+    _, file_extension = os.path.splitext(file_path)
+    file_extension = file_extension.lower().lstrip('.')
+    
+    if file_extension == 'pdf' and PdfLoader is None:
+        logger.error("PdfLoader is not available. Please install the required dependencies.")
+        sys.exit(1)
+
     try:
-        sop_metadata = sop_pipeline.run(mock_sop_document_source, sop_filename)
-        if sop_metadata:
-            logger.info(f"SOP Extracted Metadata: {json.dumps(sop_metadata, indent=2)}")
+        # Determine which pipeline setup function to use
+        if pipeline_type == "sop":
+            pipeline = setup_sop_pipeline(language="en")
         else:
-            logger.error("Failed to extract SOP metadata.")
-    except Exception as e:
-        logger.error(f"Error during SOP pipeline run: {e}", exc_info=True)
+            pipeline = setup_generic_pipeline(language="en")
 
+        # Get the appropriate loader and override the one in the pipeline
+        loader_class = DocumentLoaderRegistry.get_loader(file_extension)
+        pipeline.document_loader = loader_class
 
-    # --- Generic Pipeline Example ---
-    generic_pipeline = setup_generic_pipeline(language="en")
-
-    mock_generic_document_source = {
-        "md_di": "This is a generic document about product development. It covers various stages. "
-                 "Keywords include: innovation, design, testing. Visit https://example.com/info for more."
-    }
-    generic_filename = "Product_Development_v2.1.docx"
-
-    logger.info("\n--- Running Generic Pipeline ---")
-    try:
-        generic_metadata = generic_pipeline.run(mock_generic_document_source, generic_filename)
-        if generic_metadata:
-            logger.info(f"Generic Extracted Metadata: {json.dumps(generic_metadata, indent=2)}")
+        logger.info(f"\n--- Running {pipeline_type.upper()} Pipeline on {file_path} ---")
+        
+        # The 'run' method expects the source, which for file-based loaders is the path
+        metadata = pipeline.run(file_path, os.path.basename(file_path))
+        
+        if metadata:
+            logger.info(f"Successfully Extracted Metadata: {json.dumps(metadata, indent=2)}")
         else:
-            logger.warning("Could not extract Generic metadata.")
+            logger.error("Failed to extract metadata.")
+            
+    except ValueError as e:
+        logger.error(f"Configuration or setup error: {e}")
     except Exception as e:
-        logger.error(f"Error during Generic pipeline run: {e}", exc_info=True)
+        logger.error(f"An error occurred during pipeline execution: {e}", exc_info=True)
 
 
 if __name__ == "__main__":

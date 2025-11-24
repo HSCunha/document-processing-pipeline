@@ -16,5 +16,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Ignore
+# Folders to ignore
 backend/extract_metadata/plugins/sop/
+backend/extract_metadata/data/raw/
+
