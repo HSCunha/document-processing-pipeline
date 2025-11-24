@@ -8,3 +8,12 @@ PyPDF2
 pymupdf
 langdetect
 pymupdf4llm
+python-pptx
+openpyxl
+xlrd
+extract-msg
+azure-identity
+openai
+markdownify
+pydantic
+python-dotenv

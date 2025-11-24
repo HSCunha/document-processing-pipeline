@@ -296,6 +296,31 @@
 
                         <div class="metadata mt-2 small text-muted"></div>
                     </div>
+                    <div id="preview-content-powerpoint" class="d-none">
+                        <div class="preview-container"></div>
+                        <div class="metadata mt-2 small text-muted"></div>
+                    </div>
+                    <div id="preview-content-excel" class="d-none">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered table-striped">
+                                <thead></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div class="metadata mt-2 small text-muted"></div>
+                        <nav aria-label="Table Pagination" class="mt-2">
+                            <ul class="pagination pagination-sm justify-content-center">
+                                <li class="page-item disabled" id="excel-prev-page"><a class="page-link" href="#">Previous</a></li>
+                                <li class="page-item disabled" id="excel-next-page"><a class="page-link" href="#">Next</a></li>
+                            </ul>
+                        </nav>
+                    </div>
+                    <div id="preview-content-outlook" class="d-none">
+                        <div class="outlook-details"></div>
+                        <hr>
+                        <div class="preview-container outlook-body"></div>
+                        <div class="metadata mt-2 small text-muted"></div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -331,6 +356,9 @@
             const previewContentImage = document.getElementById('preview-content-image');
             const previewContentTable = document.getElementById('preview-content-table');
             const previewContentPdf = document.getElementById('preview-content-pdf');
+            const previewContentPowerpoint = document.getElementById('preview-content-powerpoint');
+            const previewContentExcel = document.getElementById('preview-content-excel');
+            const previewContentOutlook = document.getElementById('preview-content-outlook');
 
             previewModal.addEventListener('show.bs.modal', function (event) {
                 const button = event.relatedTarget;
@@ -347,6 +375,9 @@
                 previewContentImage.classList.add('d-none');
                 previewContentTable.classList.add('d-none');
                 previewContentPdf.classList.add('d-none');
+                previewContentPowerpoint.classList.add('d-none');
+                previewContentExcel.classList.add('d-none');
+                previewContentOutlook.classList.add('d-none');
 
                 // Clear previous content
                 previewContentText.querySelector('pre').textContent = '';
@@ -360,7 +391,14 @@
                 previewContentPdf.querySelector('.preview-container').innerHTML = ''; // Changed to innerHTML for markdown
                 previewContentPdf.querySelector('.metadata').textContent = '';
                 previewContentPdf.querySelector('.pdf-metadata').innerHTML = ''; // Clear PDF metadata
-
+                previewContentPowerpoint.querySelector('.preview-container').innerHTML = '';
+                previewContentPowerpoint.querySelector('.metadata').textContent = '';
+                previewContentExcel.querySelector('thead').innerHTML = '';
+                previewContentExcel.querySelector('tbody').innerHTML = '';
+                previewContentExcel.querySelector('.metadata').textContent = '';
+                previewContentOutlook.querySelector('.outlook-details').innerHTML = '';
+                previewContentOutlook.querySelector('.outlook-body').innerHTML = '';
+                previewContentOutlook.querySelector('.metadata').textContent = '';
                 let selectedPdfParser = 'pypdf2'; // Default parser
                 if (fileType === 'pdf') {
                     // Show PDF parser options
@@ -530,8 +568,112 @@
                             let metaText = `Size: ${metadata.size} | Total Pages: ${metadata.total_pages}`;
                             if (metadata.truncated) metaText += ' (showing first 5 pages)';
                             previewContentPdf.querySelector('.metadata').textContent = metaText;
-                        }
-                         else {
+                        } else if (metadata.type === 'powerpoint') {
+                            previewContentPowerpoint.classList.remove('d-none');
+                            const container = previewContentPowerpoint.querySelector('.preview-container');
+                            container.innerHTML = ''; // Clear previous content
+
+                            data.data.forEach(slide => {
+                                const slideDiv = document.createElement('div');
+                                slideDiv.classList.add('mb-3');
+                                const slideTitle = document.createElement('h6');
+                                slideTitle.textContent = `Slide ${slide.slide_number}`;
+                                const slideText = document.createElement('pre');
+                                slideText.textContent = slide.text;
+                                slideDiv.appendChild(slideTitle);
+                                slideDiv.appendChild(slideText);
+                                container.appendChild(slideDiv);
+                            });
+
+                            let metaText = `Size: ${metadata.size} | Slides: ${metadata.total_slides}`;
+                            previewContentPowerpoint.querySelector('.metadata').textContent = metaText;
+                        } else if (metadata.type === 'excel') {
+                            previewContentExcel.classList.remove('d-none');
+                            const tableHead = previewContentExcel.querySelector('thead');
+                            const tableBody = previewContentExcel.querySelector('tbody');
+
+                            // Clear existing table content
+                            tableHead.innerHTML = '';
+                            tableBody.innerHTML = '';
+
+                            // Create header
+                            if (metadata.columns && metadata.columns.length > 0) {
+                                const headerRow = tableHead.insertRow();
+                                metadata.columns.forEach(col => {
+                                    const th = document.createElement('th');
+                                    th.scope = 'col';
+                                    th.textContent = col;
+                                    headerRow.appendChild(th);
+                                });
+                            }
+
+                            // Create body rows
+                            if (data.data && data.data.length > 0) {
+                                data.data.forEach(rowData => {
+                                    const row = tableBody.insertRow();
+                                    metadata.columns.forEach(col => {
+                                        const cell = row.insertCell();
+                                        cell.textContent = rowData[col];
+                                    });
+                                });
+                            } else {
+                                const row = tableBody.insertRow();
+                                const cell = row.insertCell();
+                                cell.colSpan = metadata.columns ? metadata.columns.length : 1;
+                                cell.textContent = 'No data to display.';
+                            }
+
+                            let metaText = `Size: ${metadata.size} | Rows: ${metadata.totalRows} | Sheet: ${metadata.sheetName}`;
+                            if (metadata.truncated) metaText += ' (truncated)';
+                            previewContentExcel.querySelector('.metadata').textContent = metaText;
+
+                            // Pagination for Excel
+                            const prevPage = document.getElementById('excel-prev-page');
+                            const nextPage = document.getElementById('excel-next-page');
+                            if (metadata.currentPage && metadata.totalPages) {
+                                prevPage.classList.toggle('disabled', metadata.currentPage <= 1);
+                                nextPage.classList.toggle('disabled', metadata.currentPage >= metadata.totalPages);
+                                
+                                // Remove old event listeners
+                                const newPrevPage = prevPage.cloneNode(true);
+                                prevPage.parentNode.replaceChild(newPrevPage, prevPage);
+                                const newNextPage = nextPage.cloneNode(true);
+                                nextPage.parentNode.replaceChild(newNextPage, nextPage);
+                                
+                                if (metadata.currentPage > 1) {
+                                    newPrevPage.addEventListener('click', (e) => {
+                                        e.preventDefault();
+                                        fetchExcelPage(filePath, fileType, metadata.currentPage - 1);
+                                    });
+                                }
+                                if (metadata.currentPage < metadata.totalPages) {
+                                    newNextPage.addEventListener('click', (e) => {
+                                        e.preventDefault();
+                                        fetchExcelPage(filePath, fileType, metadata.currentPage + 1);
+                                    });
+                                }
+                            } else {
+                                prevPage.classList.add('d-none');
+                                nextPage.classList.add('d-none');
+                            }
+                        } else if (metadata.type === 'outlook') {
+                            previewContentOutlook.classList.remove('d-none');
+                            const detailsDiv = previewContentOutlook.querySelector('.outlook-details');
+                            const bodyDiv = previewContentOutlook.querySelector('.outlook-body');
+                            
+                            const emailData = data.data;
+                            detailsDiv.innerHTML = `
+                                <p><strong>From:</strong> ${emailData.sender || 'N/A'}</p>
+                                <p><strong>To:</strong> ${emailData.to || 'N/A'}</p>
+                                <p><strong>CC:</strong> ${emailData.cc || 'N/A'}</p>
+                                <p><strong>Date:</strong> ${emailData.date || 'N/A'}</p>
+                                <p><strong>Subject:</strong> ${emailData.subject || 'N/A'}</p>
+                            `;
+                            bodyDiv.textContent = emailData.body;
+
+                            let metaText = `Size: ${metadata.size}`;
+                            previewContentOutlook.querySelector('.metadata').textContent = metaText;
+                        } else {
                             previewError.classList.remove('d-none');
                             previewError.textContent = `Unsupported preview type: ${metadata.type || fileType}`;
                         }
@@ -543,6 +685,75 @@
                         console.error('Preview error:', error);
                     });
             });
+
+            function fetchExcelPage(filePath, fileType, page) {
+                previewLoading.classList.remove('d-none');
+                previewContentExcel.classList.add('d-none');
+
+                fetch(`/preview_data?path=${encodeURIComponent(filePath)}&type=${encodeURIComponent(fileType)}&page=${page}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { throw new Error(err.error || 'Unknown error'); });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        previewLoading.classList.add('d-none');
+                        previewContentExcel.classList.remove('d-none');
+                        const metadata = data.metadata || {};
+
+                        const tableBody = previewContentExcel.querySelector('tbody');
+                        tableBody.innerHTML = '';
+
+                        if (data.data && data.data.length > 0) {
+                            data.data.forEach(rowData => {
+                                const row = tableBody.insertRow();
+                                metadata.columns.forEach(col => {
+                                    const cell = row.insertCell();
+                                    cell.textContent = rowData[col];
+                                });
+                            });
+                        } else {
+                            const row = tableBody.insertRow();
+                            const cell = row.insertCell();
+                            cell.colSpan = metadata.columns ? metadata.columns.length : 1;
+                            cell.textContent = 'No data to display.';
+                        }
+
+                        let metaText = `Size: ${metadata.size} | Rows: ${metadata.totalRows} | Sheet: ${metadata.sheetName}`;
+                        if (metadata.truncated) metaText += ' (truncated)';
+                        previewContentExcel.querySelector('.metadata').textContent = metaText;
+
+                        const prevPage = document.getElementById('excel-prev-page');
+                        const nextPage = document.getElementById('excel-next-page');
+                        prevPage.classList.toggle('disabled', metadata.currentPage <= 1);
+                        nextPage.classList.toggle('disabled', metadata.currentPage >= metadata.totalPages);
+
+                        const newPrevPage = prevPage.cloneNode(true);
+                        prevPage.parentNode.replaceChild(newPrevPage, prevPage);
+                        const newNextPage = nextPage.cloneNode(true);
+                        nextPage.parentNode.replaceChild(newNextPage, nextPage);
+
+                        if (metadata.currentPage > 1) {
+                            newPrevPage.addEventListener('click', (e) => {
+                                e.preventDefault();
+                                fetchExcelPage(filePath, fileType, metadata.currentPage - 1);
+                            });
+                        }
+                        if (metadata.currentPage < metadata.totalPages) {
+                            newNextPage.addEventListener('click', (e) => {
+                                e.preventDefault();
+                                fetchExcelPage(filePath, fileType, metadata.currentPage + 1);
+                            });
+                        }
+                    })
+                    .catch(error => {
+                        previewLoading.classList.add('d-none');
+                        previewError.classList.remove('d-none');
+                        previewError.textContent = `Error loading excel page: ${error.message}`;
+                        console.error('Excel page error:', error);
+                    });
+            }
         });
     </script>
 </body>

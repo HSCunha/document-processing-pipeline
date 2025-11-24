@@ -5,6 +5,9 @@ from flask import Flask, render_template, request, redirect, url_for, flash, sen
 from werkzeug.utils import secure_filename
 from azure_explorer import AzureExplorer
 from utils import is_previewable, preview_data_file, process_file_metadata
+from dotenv import load_dotenv
+
+load_dotenv() # Load environment variables from .env file
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

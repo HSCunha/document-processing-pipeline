@@ -1,5 +1,6 @@
 import os
 import json
+import email
 import logging
 import base64
 from flask import jsonify
@@ -40,6 +41,30 @@ except ImportError:
     pymupdf4llm = None
     logger.warning("pymupdf4llm not installed. pymupdf4llm PDF parser will not be available. Install with: pip install pymupdf4llm")
 
+try:
+    from pptx import Presentation
+except ImportError:
+    Presentation = None
+    logger.warning("python-pptx not installed. PowerPoint preview features will be limited. Install with: pip install python-pptx")
+
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
+    logger.warning("openpyxl not installed. Excel (.xlsx) preview features will be limited. Install with: pip install openpyxl")
+
+try:
+    import xlrd
+except ImportError:
+    xlrd = None
+    logger.warning("xlrd not installed. Excel (.xls) preview features will be limited. Install with: pip install xlrd")
+
+try:
+    import extract_msg
+except ImportError:
+    extract_msg = None
+    logger.warning("extract-msg not installed. Outlook (.msg) preview features will be limited. Install with: pip install extract-msg")
+
 # File type mapping
 FILE_TYPE_ICONS = {
     # Data files
@@ -72,7 +97,15 @@ FILE_TYPE_ICONS = {
 
     # PDF files
     '.pdf': 'bi-filetype-pdf',
+
+    # Powerpoint files
+    '.ppt': 'bi-filetype-ppt',
+    '.pptx': 'bi-filetype-ppt',
     
+    # Outlook files
+    '.msg': 'bi-envelope-paper',
+    '.eml': 'bi-envelope-paper',
+
     # Binary files
     '.bin': 'bi-file-earmark-binary',
     '.exe': 'bi-file-earmark-binary',
@@ -93,6 +126,8 @@ CONTENT_TYPE_MAPPING = {
     'text/html': 'bi-filetype-html',
     'application/xml': 'bi-filetype-xml',
     'text/xml': 'bi-filetype-xml',
+    'application/vnd.ms-outlook': 'bi-envelope-paper',
+    'message/rfc822': 'bi-envelope-paper',
     'application/octet-stream': 'bi-file-earmark-binary',
 }
 
@@ -100,7 +135,10 @@ PREVIEWABLE_EXTENSIONS = [
     '.json', '.csv', '.parquet', # Already supported data files
     '.txt', '.log', '.md', '.html', '.xml', # Text-based files
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', # Image files
-    '.pdf' # PDF files
+    '.pdf', # PDF files
+    '.ppt', '.pptx', # PowerPoint files
+    '.xlsx', '.xls', # Excel files
+    '.msg', '.eml' # Outlook files
 ]
 
 def get_file_icon(filename, content_type=None):
@@ -174,6 +212,14 @@ def preview_data_file(file_path, file_type, page=1, rows_per_page=100, pdf_parse
             return preview_image(file_path, formatted_size)
         elif file_type == 'pdf':
             return preview_pdf_text(file_path, formatted_size, pdf_parser)
+        elif file_type == 'pptx':
+            return preview_powerpoint(file_path, formatted_size)
+        elif file_type == 'ppt':
+            return jsonify({'error': 'PowerPoint file preview is not yet supported for .ppt files.'}), 400
+        elif file_type in ['xlsx', 'xls']:
+            return preview_excel(file_path, formatted_size, file_type, page, rows_per_page)
+        elif file_type in ['msg', 'eml']:
+            return preview_outlook(file_path, formatted_size, file_type)
         else:
             return jsonify({'error': f'Unsupported file type: {file_type}'}), 400
     except Exception as e:
@@ -527,3 +573,144 @@ def preview_pdf_text(file_path, formatted_size, pdf_parser='pypdf2'):
             'pdf_metadata': pdf_metadata # Include detailed PDF metadata
         }
     })
+
+def preview_outlook(file_path, formatted_size, file_type):
+    """Preview Outlook file (.msg or .eml)"""
+    if file_type == 'msg' and not extract_msg:
+        return jsonify({'error': 'extract-msg library not installed for .msg preview.'}), 500
+
+    try:
+        if file_type == 'msg':
+            msg = extract_msg.Message(file_path)
+            data = {
+                'sender': msg.sender,
+                'to': msg.to,
+                'cc': msg.cc,
+                'subject': msg.subject,
+                'date': msg.date,
+                'body': msg.body,
+            }
+        elif file_type == 'eml':
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                msg = email.message_from_file(f)
+                
+                body = ""
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        content_type = part.get_content_type()
+                        content_disposition = str(part.get("Content-Disposition"))
+
+                        if "attachment" not in content_disposition:
+                            if "text/plain" in content_type:
+                                body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', 'ignore')
+                                break
+                            elif "text/html" in content_type:
+                                # Fallback to html if plain text is not available
+                                body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', 'ignore')
+                else:
+                    body = msg.get_payload(decode=True).decode(msg.get_content_charset() or 'utf-8', 'ignore')
+
+                data = {
+                    'sender': msg['From'],
+                    'to': msg['To'],
+                    'cc': msg['Cc'],
+                    'subject': msg['Subject'],
+                    'date': msg['Date'],
+                    'body': body,
+                }
+        
+        return jsonify({
+            'data': data,
+            'metadata': {
+                'size': formatted_size,
+                'type': 'outlook'
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error previewing Outlook file: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Error processing Outlook file: {str(e)}'}), 400
+
+def preview_excel(file_path, formatted_size, file_type, page=1, rows_per_page=100):
+    """Preview Excel file (.xlsx or .xls)"""
+    if file_type == 'xlsx' and not openpyxl:
+        return jsonify({'error': 'openpyxl library not installed for .xlsx preview.'}), 500
+    if file_type == 'xls' and not xlrd:
+        return jsonify({'error': 'xlrd library not installed for .xls preview.'}), 500
+
+    try:
+        import pandas as pd
+        
+        # Use appropriate engine based on file type
+        engine = 'openpyxl' if file_type == 'xlsx' else 'xlrd'
+        
+        # Get sheet names
+        excel_file = pd.ExcelFile(file_path, engine=engine)
+        sheet_names = excel_file.sheet_names
+        
+        # For simplicity, preview the first sheet. 
+        # A more advanced implementation could allow sheet selection.
+        sheet_name = sheet_names[0]
+        
+        # Read the sheet to get total rows
+        df_full = pd.read_excel(file_path, sheet_name=sheet_name, engine=engine)
+        total_rows = len(df_full)
+
+        # Read a page of data
+        skip_rows = (page - 1) * rows_per_page
+        df_page = pd.read_excel(file_path, sheet_name=sheet_name, engine=engine, skiprows=skip_rows, nrows=rows_per_page)
+        
+        # Replace NaN with None for valid JSON conversion
+        df_page = df_page.where(pd.notna(df_page), None)
+
+        records = df_page.to_dict('records')
+        columns = df_page.columns.tolist()
+
+        total_pages = max(1, (total_rows + rows_per_page - 1) // rows_per_page)
+
+        return jsonify({
+            'data': records,
+            'metadata': {
+                'size': formatted_size,
+                'totalRows': total_rows,
+                'currentPage': page,
+                'totalPages': total_pages,
+                'rowsPerPage': rows_per_page,
+                'columns': columns,
+                'sheetName': sheet_name,
+                'sheetNames': sheet_names,
+                'type': 'excel'
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error previewing Excel file: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Error processing Excel file: {str(e)}'}), 400
+
+def preview_powerpoint(file_path, formatted_size):
+    """Preview PowerPoint file"""
+    if not Presentation:
+        return jsonify({'error': 'python-pptx library not installed for PowerPoint preview.'}), 500
+
+    try:
+        presentation = Presentation(file_path)
+        slides_content = []
+        for i, slide in enumerate(presentation.slides):
+            slide_text = []
+            for shape in slide.shapes:
+                if hasattr(shape, "text"):
+                    slide_text.append(shape.text)
+            slides_content.append({
+                'slide_number': i + 1,
+                'text': "\n".join(slide_text)
+            })
+        
+        return jsonify({
+            'data': slides_content,
+            'metadata': {
+                'size': formatted_size,
+                'type': 'powerpoint',
+                'total_slides': len(presentation.slides)
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error previewing PowerPoint file: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Error processing PowerPoint file: {str(e)}'}), 400
