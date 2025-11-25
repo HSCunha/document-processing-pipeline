@@ -56,17 +56,27 @@ class AzureOpenAIClient(BaseModelClient):
             if not self.config.endpoint or not self.config.api_version:
                 raise ValueError("Azure OpenAI endpoint and API version must be configured.")
             
+            api_key = os.environ.get("AZURE_OPENAI_KEY")
+            
             try:
-                # DefaultAzureCredential will try various authentication methods (env, managed identity, etc.)
-                credential = DefaultAzureCredential()
-                token_provider = get_bearer_token_provider(credential, "https://cognitiveservices.azure.com/.default")
-                
-                self._client = AzureOpenAI(
-                    azure_endpoint=self.config.endpoint,
-                    api_version=self.config.api_version,
-                    azure_ad_token_provider=token_provider
-                )
-                logger.info(f"AzureOpenAI client initialized for endpoint: {self.config.endpoint}")
+                if api_key:
+                    self._client = AzureOpenAI(
+                        azure_endpoint=self.config.endpoint,
+                        api_version=self.config.api_version,
+                        api_key=api_key
+                    )
+                    logger.info(f"AzureOpenAI client initialized with API key for endpoint: {self.config.endpoint}")
+                else:
+                    # DefaultAzureCredential will try various authentication methods (env, managed identity, etc.)
+                    credential = DefaultAzureCredential()
+                    token_provider = get_bearer_token_provider(credential, "https://cognitiveservices.azure.com/.default")
+                    
+                    self._client = AzureOpenAI(
+                        azure_endpoint=self.config.endpoint,
+                        api_version=self.config.api_version,
+                        azure_ad_token_provider=token_provider
+                    )
+                    logger.info(f"AzureOpenAI client initialized with Azure AD for endpoint: {self.config.endpoint}")
             except Exception as e:
                 logger.error(f"Failed to initialize AzureOpenAI client: {e}")
                 self._client = None

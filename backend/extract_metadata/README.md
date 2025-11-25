@@ -111,3 +111,189 @@ The script will process the file and print the extracted metadata to the console
 -   `plugins/`: Implements a plugin architecture to support different document types or extraction strategies.
     -   `generic/`: Generic cleaning, parsing, and reference handling for various document types.
 
+## Creating a Custom Pipeline
+
+The metadata extraction module is designed to be extensible through a plugin architecture. You can create your own custom pipeline to handle new document types or implement a different extraction workflow. Here are the steps to create a new pipeline called `my_pipeline`.
+
+### 1. Create the Pipeline Directory
+
+First, create a new directory for your pipeline under `backend/extract_metadata/plugins/`:
+
+```bash
+mkdir backend/extract_metadata/plugins/my_pipeline
+```
+
+### 2. Create the Pipeline Modules
+
+Inside the `backend/extract_metadata/plugins/my_pipeline` directory, create the following Python files. These files will contain the logic for the different components of your pipeline.
+
+*   `__init__.py` (an empty file to make the directory a Python package)
+*   `cleaning.py`: For data cleaning and preprocessing.
+*   `filename_parser.py`: To extract information from filenames.
+*   `passes.py`: To define the LLM extraction passes and schemas.
+*   `references.py`: To define how to extract and handle references.
+*   `schema_map.py`: To map the extracted data to your final output schema.
+
+### 3. Implement Your Custom Logic
+
+Flesh out the logic in each of the files you created. You should follow the structure of the existing `generic` pipeline as a reference.
+
+**`cleaning.py`:**
+Define a function that returns a `CleaningPipeline`.
+
+```python
+# backend/extract_metadata/plugins/my_pipeline/cleaning.py
+from extract_metadata.core.cleaning import CleaningPipeline, CleaningStep
+
+def get_my_pipeline_cleaning_pipeline() -> CleaningPipeline:
+    """Returns the cleaning pipeline for my_pipeline."""
+    steps = [
+        # Add your CleaningStep instances here
+    ]
+    return CleaningPipeline(steps=steps)
+```
+
+**`filename_parser.py`:**
+Create a custom filename parser class.
+
+```python
+# backend/extract_metadata/plugins/my_pipeline/filename_parser.py
+from extract_metadata.core.pipeline import BaseFilenameParser
+
+class MyPipelineFilenameParser(BaseFilenameParser):
+    def parse(self, filename: str) -> dict:
+        # Implement your filename parsing logic here
+        return {"document_type": "my_document_type"}
+```
+
+**`passes.py`:**
+Define the Pydantic schema for your metadata and the LLM pass.
+
+```python
+# backend/extract_metadata/plugins/my_pipeline/passes.py
+from pydantic import BaseModel
+from extract_metadata.core.llm_passes import BaseLLMPass, LLMPassPipeline
+from extract_metadata.core.parsing import JsonOutputParser
+
+class MyPipelineMetadataSchema(BaseModel):
+    # Define your metadata fields here
+    title: str
+    author: str
+
+def get_my_pipeline_llm_pipeline() -> LLMPassPipeline:
+    """Factory function to create a my_pipeline LLM pipeline."""
+    
+    class MyPipelineLLMPass(BaseLLMPass):
+        def __init__(self, **kwargs):
+            super().__init__(
+                name="MyPipelineLLMPass",
+                output_schema=MyPipelineMetadataSchema,
+                **kwargs
+            )
+
+        def get_system_prompt(self) -> str:
+            return "Your custom system prompt here."
+
+    llm_pass = MyPipelineLLMPass(json_cleaner=JsonOutputParser())
+    return LLMPassPipeline(passes=[llm_pass])
+```
+
+**`references.py`:**
+Define and register a reference extractor.
+
+```python
+# backend/extract_metadata/plugins/my_pipeline/references.py
+from extract_metadata.core.references import RegexReferenceExtractor, ReferenceExtractorRegistry
+
+class MyPipelineReferenceExtractor(RegexReferenceExtractor):
+    def __init__(self):
+        patterns = [r"REGEX_TO_FIND_REFERENCES"]
+        super().__init__(patterns=patterns, standardize_func=lambda x: x.lower())
+
+ReferenceExtractorRegistry.register_extractor("my_pipeline_refs", MyPipelineReferenceExtractor)
+```
+
+**`schema_map.py`:**
+Define the schema mapper.
+
+```python
+# backend/extract_metadata/plugins/my_pipeline/schema_map.py
+from extract_metadata.core.schema import SchemaMapper
+
+MY_PIPELINE_OUTPUT_SCHEMA_MAP = {
+    "title": "/document/title",
+    "author": "/document/author",
+}
+
+my_pipeline_schema_mapper = SchemaMapper(MY_PIPELINE_OUTPUT_SCHEMA_MAP)
+```
+
+### 4. Integrate the New Pipeline into `run.py`
+
+Finally, you need to make the application aware of your new pipeline.
+
+1.  **Open `backend/extract_metadata/app/run.py`.**
+
+2.  **Import your new pipeline's components** at the top of the file:
+
+    ```python
+    # My Pipeline components
+    from extract_metadata.plugins.my_pipeline.filename_parser import MyPipelineFilenameParser
+    from extract_metadata.plugins.my_pipeline.cleaning import get_my_pipeline_cleaning_pipeline
+    from extract_metadata.plugins.my_pipeline.references import MyPipelineReferenceExtractor
+    from extract_metadata.plugins.my_pipeline.passes import get_my_pipeline_llm_pipeline
+    from extract_metadata.plugins.my_pipeline.schema_map import my_pipeline_schema_mapper
+    ```
+
+3.  **Create a setup function** for your pipeline in `run.py`. This function will instantiate and configure your pipeline's components.
+
+    ```python
+    def setup_my_pipeline_pipeline() -> MetadataPipeline:
+        """Sets up the 'my_pipeline' metadata extraction pipeline."""
+        logger.info("Setting up My Pipeline metadata extraction pipeline.")
+        
+        filename_parser = MyPipelineFilenameParser()
+        cleaning_pipeline = get_my_pipeline_cleaning_pipeline()
+        llm_pass_pipeline = get_my_pipeline_llm_pipeline()
+        post_processor = MetadataPostProcessor(reference_extractor_name="my_pipeline_refs")
+
+        return MetadataPipeline(
+            filename_parser=filename_parser,
+            chunker=PyMuPDFChunker(), # Or your preferred chunker
+            cleaning_pipeline=cleaning_pipeline,
+            llm_pass_pipeline=llm_pass_pipeline,
+            post_processor=post_processor,
+            schema_mapper=my_pipeline_schema_mapper,
+            # Add other components as needed
+        )
+    ```
+
+4.  **Add your pipeline to the command-line arguments.** Find the `parser.add_argument` call for the `--pipeline` argument and add `'my_pipeline'` to the `choices` list.
+
+    ```python
+    parser.add_argument("--pipeline", type=str, default="sop", choices=["sop", "generic", "my_pipeline"], help="The pipeline to use.")
+    ```
+
+5.  **Add the logic to select your pipeline** in the `main` function.
+
+    ```python
+    if __name__ == "__main__":
+        # ... (argument parsing logic) ...
+
+        if args.pipeline == "sop":
+            pipeline = setup_sop_pipeline()
+        elif args.pipeline == "generic":
+            pipeline = setup_generic_pipeline()
+        elif args.pipeline == "my_pipeline":
+            pipeline = setup_my_pipeline_pipeline()
+        else:
+            raise ValueError(f"Unknown pipeline type: {args.pipeline}")
+        
+        # ... (rest of the main function) ...
+    ```
+
+After completing these steps, you can run your new pipeline from the command line:
+
+```bash
+python -m app.run --file path/to/your/file.pdf --pipeline my_pipeline
+```

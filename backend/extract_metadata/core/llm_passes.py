@@ -1,5 +1,4 @@
 import json
-from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Type, Optional
 from pydantic import BaseModel
 from openai.types.chat import ChatCompletionMessageParam
@@ -11,16 +10,104 @@ from extract_metadata.core.parsing import JSONParser, JSONCleaner
 
 logger = get_logger(__name__)
 
-class BaseLLMPass(ABC):
+
+def get_system_prompt_02(language="en"):
+ 
+    system_prompt_02 = """
+You are a multilingual AI assistant specialized in JSON objects. 
+Your output must always be in the form of **valid JSON** with proper syntax, including double quotes around all keys and values.
+Your primary directive is to parse valid and accurate JSON ojects, without deviations, according to the outlined instructions.
+If a value is not present in the document, use null.
+
+## INSTRUCTIONS
+
+You will receive a json object and you will convert it to the following JSON schema:
+
+```json
+{{
+    "purpose": "'PURPOSE'. Format: str",
+    "scope": "'SCOPE'. Format: str",
+    "target_audience": "'Target Audience'. Format: str",
+    "abbreviations": "'ABBREVIATIONS AND DEFINITIONS'. Format: str",
+    "governing_quality_module_or_global_standard": "'Governing Quality Module / Global Standard'. Format: List",
+    "governing_documents": "'Governing Documents'. Format: List",
+    "related_documents": "'Related Documents'. Format: List",
+    "referenced_documents": "'Referenced Documents'. Format: List",
+    "external_references": "'External References'. Format: List"
+}}
+```
+
+Document IDs are a combination of 2 to 4 letters (document subtype) and 7 digits (id) separated by a '-'. 
+Document IDs examples: "QM-0000000", "STD-0000000", "SOP-0000000", "WP-0000000", "GUID-0000000", "FRM-0000000" or "ATT-0000000".
+
+**Allways** keep the JSON keys in English language. 
+**Never** translate the JSON text values, keep the text in the original language. 
+
+## EXAMPLES
+
+```json
+Example 1:
+{{
+    "purpose": null,
+    "scope": null,
+    "target_audience": null,
+    "abbreviations": null,
+    "governing_quality_module_or_global_standard": null,
+    "governing_documents": ["SOP-0000000"],
+    "related_documents": null,
+    "referenced_documents": null,
+    "external_references": null
+}}
+```
+
+```json
+Example 2:
+{{
+    "purpose": "This Standard Operating Procedure describes the process and requirements for verification audits performed by global GxP auditors at Novartis internal sites, systems.",
+    "scope": "2.1 Process Scope This SOP applies to verification audits of Corrective and Preventive Actions (CAPAs).  2.2 Out of Scope ... 2.3 Target Audience ...",
+    "target_audience": "This procedure applies to the following functions/roles as a minimum:  | Function | Roles | | - | - | | Global GxP Audit | Global GxP Audit Planning |
+",
+    "abbreviations": "Refer to the QMS Glossary for terms that are not defined below. 5.1 Abbreviations ... 5.2 Definitions ...",
+    "governing_quality_module_or_global_standard": [
+        "QM-0000000",
+        "STD-0000000"
+    ],
+    "governing_documents": [],
+    "related_documents": ["SOP-0000000"],
+    "referenced_documents": [
+        "SOP-0000000",
+        "WP-0000000",
+        "SOP-0000000",
+        "SOP-0000000"
+    ],
+    "external_references": []
+}}
+```
     """
-    Abstract base class for a single LLM interaction pass.
+    return system_prompt_02
+
+
+class MetadataExtractionSchema(BaseModel):
+    purpose: Optional[str]
+    scope: Optional[str]
+    target_audience: Optional[str]
+    abbreviations: Optional[str]
+    governing_quality_module_or_global_standard: Optional[List[str]]
+    governing_documents: Optional[List[str]]
+    related_documents: Optional[List[str]]
+    referenced_documents: Optional[List[str]]
+    external_references: Optional[List[str]]
+
+
+class BaseLLMPass:
+    """
+    A single LLM interaction pass.
     """
     def __init__(self, name: str, output_schema: Type[BaseModel], json_cleaner: JSONCleaner):
         self.name = name
         self.output_schema = output_schema
         self.json_cleaner = json_cleaner
 
-    @abstractmethod
     def get_messages(self, input_content: str, document_context: Dict[str, Any], **kwargs) -> List[ChatCompletionMessageParam]:
         """
         Prepares the list of messages for the LLM call.
@@ -35,7 +122,14 @@ class BaseLLMPass(ABC):
         Returns:
             List[ChatCompletionMessageParam]: List of messages for the LLM.
         """
-        pass
+        language = document_context.get('language', 'en')
+        system_prompt = get_system_prompt_02(language)
+        
+        messages: List[ChatCompletionMessageParam] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": input_content},
+        ]
+        return messages
 
     def run_pass(self,
                  model_client: BaseModelClient,
@@ -77,15 +171,16 @@ class BaseLLMPass(ABC):
             model_name=model_config.model_name, # Use the model name from the specific model_config
             temperature=temperature,
             max_tokens=max_tokens,
-            response_format=self.output_schema,
+            response_format=MetadataExtractionSchema,
             **kwargs
         )
         
-        parsed_data = JSONParser.parse_and_validate(raw_response, self.output_schema)
+        parsed_data = JSONParser.parse_and_validate(raw_response, MetadataExtractionSchema)
         # Assuming cleaned_data should be a dictionary for subsequent passes and final output
         cleaned_data = self.json_cleaner.clean_parsed_json(parsed_data.dict())
         
         return cleaned_data
+
 
 class LLMPassPipeline:
     """

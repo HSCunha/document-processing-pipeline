@@ -2,6 +2,10 @@ from pydantic import BaseModel, Field, SecretStr
 from typing import List, Dict, Any, Optional, Type
 import os
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure basic logging for the config module
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -111,6 +115,10 @@ class MetadataExtractionConfig(BaseModel):
         self.slm_extraction_attempts = int(os.getenv("SLM_EXTRACTION_ATTEMPTS", str(self.slm_extraction_attempts)))
         self.enable_llm_fallback = os.getenv("ENABLE_LLM", str(self.enable_llm_fallback)).lower() == "true"
         self.default_language = os.getenv("DEFAULT_LANGUAGE", self.default_language)
+        
+        # Explicitly load LLM configurations
+        self.slm_openai_config.load_from_env(language=self.default_language)
+        self.llm_openai_config.load_from_env(language=self.default_language)
 
     @classmethod
     def load_config(cls, language: Optional[str] = None) -> "MetadataExtractionConfig":
